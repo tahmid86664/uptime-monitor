@@ -1,5 +1,6 @@
 import express, { type Application } from 'express';
 import cors from 'cors';
+import { requestLogger } from './middleware/requestLogger';
 import routes from './routes';
 
 const app: Application = express();
@@ -15,6 +16,7 @@ app.use(
 );
 
 app.use(express.json());
+app.use(requestLogger);
 app.use(routes);
 
 export default app;

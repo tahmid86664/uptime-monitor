@@ -9,7 +9,7 @@ router.get('/', (_req, res) => {
   res.send('Application is Running');
 });
 
-router.use('/health', authMiddleware, healthRouter);
+router.use('/health', healthRouter);
 router.use('/metrics', authMiddleware, metricsRouter);
 
 export default router;
