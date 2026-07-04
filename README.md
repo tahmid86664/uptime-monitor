@@ -8,7 +8,7 @@ The frontend shows a real-time dashboard, CPU, memory, uptime, process info, and
 
 ## Why This Project
 
-The project is to showcase the DevOps Assessment from LogicMatrix. The tasks are mentioned in the Task.pdf.
+The project is to showcase the DevOps Assessment from LogicMatrix. The tasks are mentioned in the given pdf.
 
 ![Demo](./demo.png)
 
