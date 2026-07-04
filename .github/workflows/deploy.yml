@@ -1,0 +1,165 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  AWS_REGION: ap-southeast-1
+  ECR_BACKEND: uptime-monitor-backend
+  ECR_FRONTEND: uptime-monitor-frontend
+  EKS_CLUSTER: uptime-monitor-production
+  K8S_NAMESPACE: uptime-monitor
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install backend dependencies
+        working-directory: uptime-monitor-backend
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck backend
+        working-directory: uptime-monitor-backend
+        run: pnpm typecheck
+
+      - name: Install frontend dependencies
+        working-directory: uptime-monitor-frontend
+        run: yarn install --immutable
+
+      - name: Lint frontend
+        working-directory: uptime-monitor-frontend
+        run: yarn lint
+
+      - name: Typecheck frontend
+        working-directory: uptime-monitor-frontend
+        run: yarn typecheck
+
+  build-and-push:
+    name: Build & Push to ECR
+    runs-on: ubuntu-24.04
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    outputs:
+      image-tag: ${{ steps.image-tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set image tag from git SHA
+        id: image-tag
+        run: echo "tag=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.image-tag.outputs.tag }}
+        run: |
+          docker build \
+            --tag $ECR_REGISTRY/$ECR_BACKEND:$IMAGE_TAG \
+            ./uptime-monitor-backend
+          docker push $ECR_REGISTRY/$ECR_BACKEND:$IMAGE_TAG
+
+      - name: Build and push frontend image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ steps.image-tag.outputs.tag }}
+        run: |
+          docker build \
+            --tag $ECR_REGISTRY/$ECR_FRONTEND:$IMAGE_TAG \
+            ./uptime-monitor-frontend
+          docker push $ECR_REGISTRY/$ECR_FRONTEND:$IMAGE_TAG
+
+  deploy:
+    name: Deploy to EKS
+    runs-on: ubuntu-24.04
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    env:
+      ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+      IMAGE_TAG: ${{ needs.build-and-push.outputs.image-tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig for EKS
+        run: |
+          aws eks update-kubeconfig \
+            --name ${{ env.EKS_CLUSTER }} \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Apply namespace and config
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+          kubectl apply -f k8s/backend-configmap.yaml
+          kubectl apply -f k8s/backend-service.yaml
+          kubectl apply -f k8s/frontend-service.yaml
+          kubectl apply -f k8s/ingress.yaml
+
+      - name: Create or update backend secret
+        run: |
+          kubectl create secret generic backend-secret \
+            --from-literal=API_KEY=${{ secrets.API_KEY }} \
+            --namespace=${{ env.K8S_NAMESPACE }} \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy backend
+        run: envsubst '$ACCOUNT_ID $IMAGE_TAG' < k8s/backend-deployment.yaml | kubectl apply -f -
+
+      - name: Deploy frontend
+        run: envsubst '$ACCOUNT_ID $IMAGE_TAG' < k8s/frontend-deployment.yaml | kubectl apply -f -
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/backend \
+            -n ${{ env.K8S_NAMESPACE }} --timeout=120s
+          kubectl rollout status deployment/frontend \
+            -n ${{ env.K8S_NAMESPACE }} --timeout=120s
+
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-24.04
+    needs: [build-and-push, deploy]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_TAG: ${{ needs.build-and-push.outputs.image-tag }}
+        run: |
+          gh release create "v-${IMAGE_TAG}" \
+            --title "Release v-${IMAGE_TAG}" \
+            --notes "Deployed commit ${GITHUB_SHA} to production EKS cluster." \
+            --latest
