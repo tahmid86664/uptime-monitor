@@ -1,12 +1,12 @@
-# Terraform — EKS Cluster Provisioning (AWS)
+# Terraform - EKS Cluster Provisioning (AWS)
 
-Provisions a production-style AWS EKS platform using only custom modules. No third-party or registry modules are used.
+Here we've provisioned a production-style AWS EKS platform using only custom modules. No third-party or registry modules are used.
 
 ## Prerequisites
 
 - Terraform >= 1.10.0
 - AWS CLI configured (`aws configure`)
-- An S3 bucket for remote state (created once manually — see below)
+- An S3 bucket for remote state (created once manually - please see below)
 
 ## Bootstrap Remote State (one-time)
 
@@ -32,8 +32,6 @@ terraform init
 terraform plan -var="db_username=admin" -var="db_password=yourpassword"
 terraform apply -var="db_username=admin" -var="db_password=yourpassword"
 ```
-
-Sensitive variables (`db_username`, `db_password`) must be passed at runtime — never stored in `.tf` files.
 
 ## Module Structure
 

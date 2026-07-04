@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: backend
-          image: ${ACCOUNT_ID}.dkr.ecr.ap-southeast-1.amazonaws.com/uptime-monitor-backend:${IMAGE_TAG}
+          image: ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/uptime-monitor-backend:${IMAGE_TAG}
           ports:
             - containerPort: 8080
           envFrom:

@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: frontend
-          image: ${ACCOUNT_ID}.dkr.ecr.ap-southeast-1.amazonaws.com/uptime-monitor-frontend:${IMAGE_TAG}
+          image: ${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/uptime-monitor-frontend:${IMAGE_TAG}
           ports:
             - containerPort: 3001
           env:
